@@ -93,6 +93,26 @@ $ make test
 $ make e2e
 ```
 
+## Sandbox Network Access
+
+Language sandboxes have no network access unless both `RUN_LANG_EGRESS_IP` and
+`RUN_LANG_EGRESS_PORT` are set in the app environment. The configured endpoint
+is limited to that IPv4 address and TCP port; other IPv4 and all IPv6 egress
+remain blocked. Use a numeric IP address, so DNS is not required. Leave both
+variables unset to keep networking disabled. The documentation-only ranges
+`192.0.2.0/24`, `198.51.100.0/24`, and `203.0.113.0/24` are treated as
+placeholders and also leave networking disabled.
+
+The app container must be privileged and have network forwarding enabled for
+this feature. Once the actual endpoint is known, configure:
+
+```
+RUN_LANG_EGRESS_IP=<actual IPv4 address>
+RUN_LANG_EGRESS_PORT=<actual TCP port>
+```
+
+Documentation addresses are intentionally ignored and are not routable destinations.
+
 ## Vagrant
 
 Using Vagrant and VirtualBox, with one command you can create a virtual machine, install all of the other dependencies onto it (Docker, Docker Compose, Go, Raku + zef dependencies, npm, etc.), and forward port 443 (https) to it.

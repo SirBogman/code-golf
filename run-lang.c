@@ -37,7 +37,34 @@
 #define ERR_AND_EXIT(msg) do { perror(msg); exit(EXIT_FAILURE); } while (0)
 #define STR_WITH_LEN(str) str, sizeof(str) - 1
 
+static void wait_for_network_setup(void) {
+    const char *fd_string = getenv("RUN_LANG_NETWORK_SETUP_FD");
+    if (fd_string == NULL)
+        return;
+
+    char *end;
+    long fd = strtol(fd_string, &end, 10);
+    if (end == fd_string || *end != '\0' || fd < 3 || fd > 1024) {
+        errno = EINVAL;
+        ERR_AND_EXIT("network setup fd");
+    }
+
+    char ready;
+    ssize_t bytes_read;
+    do {
+        bytes_read = read((int) fd, &ready, sizeof(ready));
+    } while (bytes_read < 0 && errno == EINTR);
+
+    close((int) fd);
+    if (bytes_read != 1 || ready != 1) {
+        errno = ECANCELED;
+        ERR_AND_EXIT("network setup");
+    }
+}
+
 int main(__attribute__((unused)) int argc, char *argv[]) {
+    wait_for_network_setup();
+
     if (mount(NULL, "/", NULL, MS_PRIVATE|MS_REC, NULL) < 0)
         ERR_AND_EXIT("mount private");
 

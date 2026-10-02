@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -268,6 +269,23 @@ func runCode(
 		cmd.ExtraFiles = []*os.File{asmBytesWrite}
 	}
 
+	egress, err := sandboxEgressFromEnv()
+	if err != nil {
+		return err
+	}
+	var networkSetupRead, networkSetupWrite *os.File
+	if egress != nil {
+		if networkSetupRead, networkSetupWrite, err = os.Pipe(); err != nil {
+			return err
+		}
+		defer networkSetupRead.Close()
+		defer networkSetupWrite.Close()
+
+		setupFD := 3 + len(cmd.ExtraFiles)
+		cmd.ExtraFiles = append(cmd.ExtraFiles, networkSetupRead)
+		cmd.Env = append(cmd.Env, "RUN_LANG_NETWORK_SETUP_FD="+strconv.Itoa(setupFD))
+	}
+
 	// Language arguments. Clone because we intend to mutate.
 	if hole.ID == "quine" && lang.ArgsQuine != nil {
 		cmd.Args = slices.Clone(lang.ArgsQuine)
@@ -298,7 +316,32 @@ func runCode(
 		cmd.Args = append(cmd.Args, run.Args...)
 	}
 
-	err := cmd.Run()
+	if egress == nil {
+		err = cmd.Run()
+	} else {
+		if err = cmd.Start(); err == nil {
+			networkSetupRead.Close()
+			var cleanup func() error
+			cleanup, err = setupSandboxNetworking(cmd.Process.Pid, egress)
+			if err != nil {
+				cmd.Process.Kill()
+				cmd.Wait()
+				return err
+			}
+
+			if _, err = networkSetupWrite.Write([]byte{1}); err != nil {
+				cmd.Process.Kill()
+				cmd.Wait()
+				cleanup()
+				return err
+			}
+			networkSetupWrite.Close()
+			err = cmd.Wait()
+			if cleanupErr := cleanup(); err == nil {
+				err = cleanupErr
+			}
+		}
+	}
 	run.Time = time.Since(start)
 
 	if err != nil {
